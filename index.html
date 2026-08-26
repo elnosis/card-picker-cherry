@@ -932,7 +932,7 @@
 
 <!-- 안드로이드 앱바 스타일 헤더 (전체 폭) -->
 <header>
-    <h1>🍒 카드 피커 체리 <span class="version-badge" id="app-version">v1.0.60</span></h1>
+    <h1>🍒 카드 피커 체리 <span class="version-badge" id="app-version">v1.0.61</span></h1>
     
     <div class="header-actions">
         <button class="options-btn" onclick="openRemainingList(true)" aria-label="이 달의 남은 혜택" title="이 달의 남은 혜택">🔍</button>
@@ -1145,7 +1145,7 @@
 
         // 서비스 워커가 아직 제어하지 않으면 기본값 유지
         if (!navigator.serviceWorker.controller) {
-            badge.textContent = 'v1.0.60';
+            badge.textContent = 'v1.0.61';
             return;
         }
 
@@ -1203,7 +1203,7 @@
         // 버전 배지 강제 표시
         const badge = document.getElementById('app-version');
         if (badge && !badge.textContent.trim()) {
-            badge.textContent = 'v1.0.60';
+            badge.textContent = 'v1.0.61';
         }
         fetchAppVersion();
 
@@ -2591,21 +2591,31 @@
     function parseLimitAmount(limitStr) {
         if (!limitStr || limitStr === '무제한' || String(limitStr).trim() === '') return null;
         const s = String(limitStr).replace(/,/g, '');
-        // 회·매·장·마일·원 순으로 첫 숫자 사용
-        const ordered = [
-            /(\d+)\s*회/,
-            /(\d+)\s*매/,
-            /(\d+)\s*장/,
-            /(\d+)\s*마일/,
-            /최대\s*(\d+)\s*원/,
-            /(\d+)\s*원/
-        ];
-        for (const re of ordered) {
-            const m = s.match(re);
-            if (m) return parseInt(m[1], 10);
+        // 회당만 있고 횟수 한도가 없으면 기간 한도 없음
+        if (/회당/.test(s) && !/\d+\s*회(?!당)/.test(s) && !/\d+\s*매/.test(s) && !/\d+\s*장/.test(s)) {
+            const maxWon = s.match(/최대\s*(\d+)\s*만?원/);
+            if (maxWon) {
+                let n = parseInt(maxWon[1], 10);
+                if (/최대\s*\d+\s*만원/.test(s)) n *= 10000;
+                return n;
+            }
+            return null;
         }
-        const m = s.match(/(\d+)/);
-        return m ? parseInt(m[1], 10) : null;
+        // 횟수/장수 한도 우선 (회당 제외)
+        const cnt = s.match(/(\d+)\s*회(?!당)/);
+        if (cnt) return parseInt(cnt[1], 10);
+        const mae = s.match(/(\d+)\s*매/);
+        if (mae) return parseInt(mae[1], 10);
+        const jang = s.match(/(\d+)\s*장/);
+        if (jang) return parseInt(jang[1], 10);
+        const mile = s.match(/(\d+)\s*마일/);
+        if (mile) return parseInt(mile[1], 10);
+        // 원 한도: 12000원, 1.2만원
+        const man = s.match(/(\d+(?:\.\d+)?)\s*만원/);
+        if (man) return Math.round(parseFloat(man[1]) * 10000);
+        const won = s.match(/(\d+)\s*원/);
+        if (won) return parseInt(won[1], 10);
+        return null;
     }
 
     function isMileageUnit(rate, limit) {
@@ -2671,51 +2681,71 @@
     }
 
     /* 결제금액 + 할인율/금액 식으로 혜택 수치 계산 */
+    /* 혜택 한도 숫자 (현재 월 실적 티어 기준 메타 우선) */
+    function getBenefitLimitNum(cardName, benefitName, dateStr) {
+        const meta = findBenefitMetaForMonth(cardName, benefitName, dateStr);
+        if (!meta) return null;
+        return parseLimitAmount(meta.limit);
+    }
+
+    /* 월 실적에 맞는 혜택 메타 (없으면 일반 findBenefitMeta) */
+    function findBenefitMetaForMonth(cardName, benefitName, dateStr) {
+        if (!cardBenefitsData || !benefitName) return findBenefitMeta(cardName, benefitName);
+        const monthKey = dateStr ? String(dateStr).slice(0, 7) : '';
+        const searchCards = [cardName];
+        const linked = getLinkedCompanyProduct(cardName);
+        if (linked) searchCards.push(linked);
+
+        if (monthKey && cardBenefitsData[cardName]) {
+            const tiers = cardBenefitsData[cardName];
+            const tierKeys = getTierKeys(tiers);
+            const defaults = cardDefaults[cardName] || {};
+            const monthPerf = performanceData[monthKey] || {};
+            let selectedTier = monthPerf[cardName] || defaults.defaultTier || tierKeys[0];
+            if (!tierKeys.includes(selectedTier)) selectedTier = tierKeys[0];
+            const inTier = (tiers[selectedTier] || []).find(b => b.name === benefitName);
+            if (inTier) return inTier;
+        }
+        return findBenefitMeta(cardName, benefitName);
+    }
+
+    /* 통합 그룹에 속하는 혜택명 목록 */
+    function getIntegratedBenefitNames(cardName, benefitName) {
+        const meta = findBenefitMeta(cardName, benefitName);
+        if (!meta || !isIntegratedLimit(meta)) return [benefitName];
+        const gkey = getIntegratedGroupKey(meta);
+        const names = new Set([benefitName]);
+        const products = [cardName];
+        const linked = getLinkedCompanyProduct(cardName);
+        if (linked) products.push(linked);
+        products.forEach(cn => {
+            const tiers = cardBenefitsData && cardBenefitsData[cn];
+            if (!tiers) return;
+            Object.values(tiers).forEach(list => {
+                (list || []).forEach(b => {
+                    if (isIntegratedLimit(b) && getIntegratedGroupKey(b) === gkey) {
+                        names.add(b.name);
+                    }
+                });
+            });
+        });
+        return Array.from(names);
+    }
+
     /* 해당 혜택(또는 통합 그룹)의 기간 내 기사용 금액 */
     function getUsedAmountForBenefit(cardName, benefitName, dateStr, excludeId) {
-        const meta = findBenefitMeta(cardName, benefitName);
+        const meta = findBenefitMetaForMonth(cardName, benefitName, dateStr) || findBenefitMeta(cardName, benefitName);
         if (!meta) return 0;
-        const usagePrefix = getUsagePeriodPrefix(
-            dateStr ? String(dateStr).slice(0, 7) : '',
-            meta.period
-        );
+        const monthKey = dateStr ? String(dateStr).slice(0, 7) : '';
+        if (!monthKey) return 0;
+        const usagePrefix = getUsagePeriodPrefix(monthKey, meta.period);
         if (!usagePrefix) return 0;
 
-        let names = [benefitName];
-        if (isIntegratedLimit(meta)) {
-            const gkey = getIntegratedGroupKey(meta);
-            // 같은 카드 데이터에서 동일 통합 그룹 혜택명 수집
-            const tiers = cardBenefitsData && cardBenefitsData[cardName];
-            if (tiers) {
-                const set = new Set();
-                Object.values(tiers).forEach(list => {
-                    (list || []).forEach(b => {
-                        if (isIntegratedLimit(b) && getIntegratedGroupKey(b) === gkey) {
-                            set.add(b.name);
-                        }
-                    });
-                });
-                // 연결 카드사 상품에서도 검색
-                names = Array.from(set);
-                if (!names.length) names = [benefitName];
-            }
-            // 연결 상품명으로 기록된 경우도 포함
-            const linked = getLinkedCompanyProduct(cardName);
-            if (linked && cardBenefitsData[linked]) {
-                Object.values(cardBenefitsData[linked]).forEach(list => {
-                    (list || []).forEach(b => {
-                        if (isIntegratedLimit(b) && getIntegratedGroupKey(b) === gkey) {
-                            names.push(b.name);
-                        }
-                    });
-                });
-            }
-            names = Array.from(new Set(names));
-        }
+        const names = getIntegratedBenefitNames(cardName, benefitName);
 
         return (benefitData || [])
             .filter(item => {
-                if (excludeId != null && item.id === excludeId) return false;
+                if (excludeId != null && String(item.id) === String(excludeId)) return false;
                 if (item.cardName !== cardName) return false;
                 if (!names.includes(item.benefitName)) return false;
                 return item.date && String(item.date).startsWith(usagePrefix);
@@ -2723,15 +2753,22 @@
             .reduce((sum, item) => sum + (Number(item.amount) || 0), 0);
     }
 
-    /* 한도·기사용을 반영해 실제 받을 수 있는 혜택 금액으로 캡 */
-    function capBenefitByRemainingLimit(cardName, benefitName, amount, dateStr, excludeId) {
-        const meta = findBenefitMeta(cardName, benefitName);
-        if (!meta) return Math.max(0, amount);
-        const limitNum = parseLimitAmount(meta.limit);
-        if (limitNum == null) return Math.max(0, amount);
+    /* 남은 한도 (한도 없으면 null = 무제한) */
+    function getRemainingLimit(cardName, benefitName, dateStr, excludeId) {
+        const limitNum = getBenefitLimitNum(cardName, benefitName, dateStr);
+        if (limitNum == null) return null;
         const used = getUsedAmountForBenefit(cardName, benefitName, dateStr, excludeId);
-        const remain = Math.max(0, limitNum - used);
-        return Math.max(0, Math.min(Number(amount) || 0, remain));
+        return Math.max(0, limitNum - used);
+    }
+
+    /* 한도 초과 시 남은 한도까지만 적용 (0이 아니라 잔여분) */
+    function capBenefitByRemainingLimit(cardName, benefitName, amount, dateStr, excludeId) {
+        const raw = Math.max(0, Number(amount) || 0);
+        if (raw <= 0) return 0;
+        const remain = getRemainingLimit(cardName, benefitName, dateStr, excludeId);
+        if (remain == null) return raw; // 무제한
+        // 남은 한도가 있으면 그 범위 안, 없으면 0
+        return Math.min(raw, remain);
     }
 
     function calculateBenefitAmount(payment, rateStr, limitStr) {
@@ -2768,11 +2805,8 @@
             }
         }
 
-        // 월간 한도로 캡
-        const limitNum = parseLimitAmount(limitStr);
-        if (limitNum != null && benefit > limitNum) {
-            benefit = limitNum;
-        }
+        // 기간 한도 캡은 capBenefitByRemainingLimit에서 기사용 반영 후 처리
+        // (여기서 full limit으로 자르면 남은 한도 계산과 혼동됨)
         return Math.max(0, benefit);
     }
 
@@ -3591,17 +3625,22 @@
             return;
         }
 
-        let calculated = calculateBenefitAmount(payment, meta.rate, meta.limit);
+        const calculated = calculateBenefitAmount(payment, meta.rate, meta.limit);
         const dateVal = document.getElementById('form-date')?.value || '';
         const excludeId = (typeof editingId !== 'undefined' && editingId != null) ? editingId : null;
-        const capped = capBenefitByRemainingLimit(cardName, benefitName, calculated, dateVal, excludeId);
-        const limitNum = parseLimitAmount(meta.limit);
+        const remain = getRemainingLimit(cardName, benefitName, dateVal, excludeId);
+        const limitNum = getBenefitLimitNum(cardName, benefitName, dateVal);
         const used = getUsedAmountForBenefit(cardName, benefitName, dateVal, excludeId);
-        amountInput.value = capped;
-        if (limitNum != null && calculated > capped) {
-            hint.textContent = `자동 계산 ${calculated.toLocaleString()}${unit} → 남은 한도 ${capped.toLocaleString()}${unit}만 적용 (한도 ${limitNum.toLocaleString()}${unit}, 기사용 ${used.toLocaleString()}${unit})`;
+        // 남은 한도까지만 적용 (잔여가 있으면 그 값, 잔여 0이면 0)
+        let applied = calculated;
+        if (remain != null) applied = Math.min(calculated, remain);
+        amountInput.value = applied;
+        if (remain != null && calculated > remain) {
+            hint.textContent = `계산 ${calculated.toLocaleString()}${unit} → 한도 내 ${applied.toLocaleString()}${unit}만 적용 (한도 ${limitNum.toLocaleString()}${unit} · 기사용 ${used.toLocaleString()}${unit} · 잔여 ${remain.toLocaleString()}${unit})`;
         } else {
-            hint.textContent = `자동 계산: ${meta.rate || '-'} → ${capped.toLocaleString()}${unit} (한도: ${meta.limit || '없음'}) · 수동 수정 가능`;
+            hint.textContent = `자동 계산: ${meta.rate || '-'} → ${applied.toLocaleString()}${unit}` +
+                (limitNum != null ? ` (한도 ${limitNum.toLocaleString()}${unit} · 잔여 ${(remain != null ? remain : limitNum).toLocaleString()}${unit})` : '') +
+                ' · 수동 수정 가능';
         }
     }
 
@@ -3625,23 +3664,23 @@
             return;
         }
 
-        const meta = findBenefitMeta(cardName, benefitName);
+        const meta = findBenefitMetaForMonth(cardName, benefitName, date) || findBenefitMeta(cardName, benefitName);
         const unit = meta ? getUnitLabel(meta.rate, meta.limit) : '원';
         const excludeId = editingId != null ? editingId : null;
-        const cappedAmount = capBenefitByRemainingLimit(cardName, benefitName, amount, date, excludeId);
-        if (cappedAmount < amount) {
-            const limitNum = meta ? parseLimitAmount(meta.limit) : null;
-            const used = getUsedAmountForBenefit(cardName, benefitName, date, excludeId);
-            const msg = limitNum != null
-                ? `한도를 초과해 ${cappedAmount.toLocaleString()}${unit}만 적용합니다.\n(한도 ${limitNum.toLocaleString()}${unit}, 기사용 ${used.toLocaleString()}${unit})`
-                : `한도를 초과해 ${cappedAmount.toLocaleString()}${unit}만 적용합니다.`;
-            alert(msg);
+        const remain = getRemainingLimit(cardName, benefitName, date, excludeId);
+        const limitNum = getBenefitLimitNum(cardName, benefitName, date);
+        const used = getUsedAmountForBenefit(cardName, benefitName, date, excludeId);
+        let finalAmount = Math.max(0, amount);
+        if (remain != null) {
+            if (remain <= 0 && amount > 0) {
+                alert(`남은 한도가 없습니다.\n(한도 ${limitNum.toLocaleString()}${unit}, 기사용 ${used.toLocaleString()}${unit})`);
+                return;
+            }
+            if (finalAmount > remain) {
+                alert(`한도를 초과해 남은 ${remain.toLocaleString()}${unit}만 적용합니다.\n(한도 ${limitNum.toLocaleString()}${unit}, 기사용 ${used.toLocaleString()}${unit})`);
+                finalAmount = remain;
+            }
         }
-        if (cappedAmount <= 0 && amount > 0) {
-            alert('남은 한도가 없어 혜택을 적용할 수 없습니다.');
-            return;
-        }
-        const finalAmount = cappedAmount;
 
         if (editingId != null) {
             const idx = benefitData.findIndex(r => r.id === editingId);
