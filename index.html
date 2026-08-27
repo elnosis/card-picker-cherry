@@ -932,7 +932,7 @@
 
 <!-- 안드로이드 앱바 스타일 헤더 (전체 폭) -->
 <header>
-    <h1>🍒 카드 피커 체리 <span class="version-badge" id="app-version">v1.0.61</span></h1>
+    <h1>🍒 카드 피커 체리 <span class="version-badge" id="app-version">v1.0.62</span></h1>
     
     <div class="header-actions">
         <button class="options-btn" onclick="openRemainingList(true)" aria-label="이 달의 남은 혜택" title="이 달의 남은 혜택">🔍</button>
@@ -1012,9 +1012,6 @@
             <label for="month-spinner">조회 기간 선택</label>
             <select id="month-spinner" class="spinner-select" onchange="handleFilterChange(this.value)">
                 <option value="ALL">전체 (월별 추이 그래프)</option>
-                <option value="2026-08" selected>2026년 8월</option>
-                <option value="2026-07">2026년 7월</option>
-                <option value="2026-06">2026년 6월</option>
             </select>
         </div>
 
@@ -1034,9 +1031,6 @@
             <label for="record-month-spinner">조회 기간 선택</label>
             <select id="record-month-spinner" class="spinner-select" onchange="renderHistoryList()">
                 <option value="ALL" selected>전체</option>
-                <option value="2026-08">2026년 8월</option>
-                <option value="2026-07">2026년 7월</option>
-                <option value="2026-06">2026년 6월</option>
             </select>
         </div>
         <div class="record-card">
@@ -1145,7 +1139,7 @@
 
         // 서비스 워커가 아직 제어하지 않으면 기본값 유지
         if (!navigator.serviceWorker.controller) {
-            badge.textContent = 'v1.0.61';
+            badge.textContent = 'v1.0.62';
             return;
         }
 
@@ -1203,7 +1197,7 @@
         // 버전 배지 강제 표시
         const badge = document.getElementById('app-version');
         if (badge && !badge.textContent.trim()) {
-            badge.textContent = 'v1.0.61';
+            badge.textContent = 'v1.0.62';
         }
         fetchAppVersion();
 
@@ -2444,6 +2438,77 @@
         return `${y}-${m}`;
     }
 
+    function formatYearMonthLabel(ym) {
+        if (!ym || !/^\d{4}-\d{2}$/.test(ym)) return ym || '';
+        const [y, m] = ym.split('-');
+        return `${y}년 ${parseInt(m, 10)}월`;
+    }
+
+    /* 사용 기록 또는 전월 실적이 있는 달 + 앱 실행 당월 */
+    function getAvailableMonths() {
+        const set = new Set();
+        set.add(getCurrentYearMonth());
+        (benefitData || []).forEach(item => {
+            if (item.date && String(item.date).length >= 7) {
+                set.add(String(item.date).slice(0, 7));
+            }
+        });
+        Object.keys(performanceData || {}).forEach(ym => {
+            if (!/^\d{4}-\d{2}$/.test(ym)) return;
+            const cards = performanceData[ym] || {};
+            if (Object.keys(cards).length > 0) set.add(ym);
+        });
+        // 월별 옵션/등급만 있어도 조회 가능하게
+        Object.keys(monthlyOptions || {}).forEach(ym => {
+            if (/^\d{4}-\d{2}$/.test(ym) && monthlyOptions[ym] && Object.keys(monthlyOptions[ym]).length) set.add(ym);
+        });
+        Object.keys(monthlyGrades || {}).forEach(ym => {
+            if (/^\d{4}-\d{2}$/.test(ym) && monthlyGrades[ym] && Object.keys(monthlyGrades[ym]).length) set.add(ym);
+        });
+        return Array.from(set).sort((a, b) => b.localeCompare(a));
+    }
+
+    function populateMonthSpinners(preferMonth) {
+        const months = getAvailableMonths();
+        const current = getCurrentYearMonth();
+        const statusSel = document.getElementById('month-spinner');
+        const recordSel = document.getElementById('record-month-spinner');
+
+        const prevStatus = preferMonth || (statusSel && statusSel.value) || current;
+        const prevRecord = (recordSel && recordSel.value) || 'ALL';
+
+        if (statusSel) {
+            let html = '<option value="ALL">전체 (월별 추이 그래프)</option>';
+            months.forEach(ym => {
+                html += `<option value="${ym}">${formatYearMonthLabel(ym)}</option>`;
+            });
+            statusSel.innerHTML = html;
+            // 이전 선택 유지, 없으면 당월, 없으면 가장 최근 월
+            if (prevStatus === 'ALL') {
+                statusSel.value = 'ALL';
+            } else if (months.includes(prevStatus)) {
+                statusSel.value = prevStatus;
+            } else if (months.includes(current)) {
+                statusSel.value = current;
+            } else if (months.length) {
+                statusSel.value = months[0];
+            }
+        }
+
+        if (recordSel) {
+            let html = '<option value="ALL">전체</option>';
+            months.forEach(ym => {
+                html += `<option value="${ym}">${formatYearMonthLabel(ym)}</option>`;
+            });
+            recordSel.innerHTML = html;
+            if (prevRecord === 'ALL' || !months.includes(prevRecord)) {
+                recordSel.value = 'ALL';
+            } else {
+                recordSel.value = prevRecord;
+            }
+        }
+    }
+
     function getRateScore(rateStr) {
         const s = String(rateStr || '');
         const pctMatches = [...s.matchAll(/(\d+(?:\.\d+)?)\s*%/g)].map(m => parseFloat(m[1]));
@@ -2582,6 +2647,7 @@
     }
 
     function renderAll() {
+        populateMonthSpinners();
         const selectedMonth = document.getElementById('month-spinner').value;
         handleFilterChange(selectedMonth);
         renderHistoryList();
@@ -3091,6 +3157,7 @@
         }
         performanceData[selectedMonth][cardName] = tier;
         saveData();
+        populateMonthSpinners(selectedMonth);
         renderMonthStatus(selectedMonth);
     }
 
