@@ -1,5 +1,5 @@
 // 상단 버전 수정 시 메인 화면 버전 배지도 자동으로 업데이트됩니다.
-const APP_VERSION = 'v1.0.62';
+const APP_VERSION = 'v1.0.63';
 const CACHE_NAME = `card-picker-cherry-${APP_VERSION}`;
 
 const ASSETS = [

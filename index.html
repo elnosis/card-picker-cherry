@@ -932,7 +932,7 @@
 
 <!-- 안드로이드 앱바 스타일 헤더 (전체 폭) -->
 <header>
-    <h1>🍒 카드 피커 체리 <span class="version-badge" id="app-version">v1.0.62</span></h1>
+    <h1>🍒 카드 피커 체리 <span class="version-badge" id="app-version">v1.0.63</span></h1>
     
     <div class="header-actions">
         <button class="options-btn" onclick="openRemainingList(true)" aria-label="이 달의 남은 혜택" title="이 달의 남은 혜택">🔍</button>
@@ -1010,7 +1010,7 @@
     <div id="tab-status" class="tab-content active">
         <div class="filter-box">
             <label for="month-spinner">조회 기간 선택</label>
-            <select id="month-spinner" class="spinner-select" onchange="handleFilterChange(this.value)">
+            <select id="month-spinner" class="spinner-select" onchange="onStatusMonthChange(this.value)">
                 <option value="ALL">전체 (월별 추이 그래프)</option>
             </select>
         </div>
@@ -1030,7 +1030,7 @@
         <div class="filter-box">
             <label for="record-month-spinner">조회 기간 선택</label>
             <select id="record-month-spinner" class="spinner-select" onchange="renderHistoryList()">
-                <option value="ALL" selected>전체</option>
+                <option value="ALL">전체</option>
             </select>
         </div>
         <div class="record-card">
@@ -1139,7 +1139,7 @@
 
         // 서비스 워커가 아직 제어하지 않으면 기본값 유지
         if (!navigator.serviceWorker.controller) {
-            badge.textContent = 'v1.0.62';
+            badge.textContent = 'v1.0.63';
             return;
         }
 
@@ -1197,7 +1197,7 @@
         // 버전 배지 강제 표시
         const badge = document.getElementById('app-version');
         if (badge && !badge.textContent.trim()) {
-            badge.textContent = 'v1.0.62';
+            badge.textContent = 'v1.0.63';
         }
         fetchAppVersion();
 
@@ -2484,9 +2484,10 @@
             });
             statusSel.innerHTML = html;
             // 이전 선택 유지, 없으면 당월, 없으면 가장 최근 월
-            if (prevStatus === 'ALL') {
+            // 기본은 당월. 사용자가 전체를 고른 경우에만 ALL 유지
+            if (prevStatus === 'ALL' && statusSel.dataset.userChoseAll === '1') {
                 statusSel.value = 'ALL';
-            } else if (months.includes(prevStatus)) {
+            } else if (prevStatus && prevStatus !== 'ALL' && months.includes(prevStatus)) {
                 statusSel.value = prevStatus;
             } else if (months.includes(current)) {
                 statusSel.value = current;
@@ -2501,10 +2502,15 @@
                 html += `<option value="${ym}">${formatYearMonthLabel(ym)}</option>`;
             });
             recordSel.innerHTML = html;
-            if (prevRecord === 'ALL' || !months.includes(prevRecord)) {
-                recordSel.value = 'ALL';
-            } else {
+            // 기본은 당월 (이전이 전체/무효면 당월)
+            if (prevRecord && prevRecord !== 'ALL' && months.includes(prevRecord)) {
                 recordSel.value = prevRecord;
+            } else if (months.includes(current)) {
+                recordSel.value = current;
+            } else if (months.length) {
+                recordSel.value = months[0];
+            } else {
+                recordSel.value = 'ALL';
             }
         }
     }
@@ -2629,6 +2635,14 @@
         document.getElementById('form-calc-hint').textContent = '수정 모드 · 값을 변경한 뒤 저장하세요';
 
         document.getElementById('add-record-modal').classList.add('show');
+    }
+
+    function onStatusMonthChange(selectedMonth) {
+        const statusSel = document.getElementById('month-spinner');
+        if (statusSel) {
+            statusSel.dataset.userChoseAll = (selectedMonth === 'ALL') ? '1' : '0';
+        }
+        handleFilterChange(selectedMonth);
     }
 
     function handleFilterChange(selectedMonth) {
