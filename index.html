@@ -932,7 +932,7 @@
 
 <!-- 안드로이드 앱바 스타일 헤더 (전체 폭) -->
 <header>
-    <h1>🍒 카드 피커 체리 <span class="version-badge" id="app-version">v1.0.63</span></h1>
+    <h1>🍒 카드 피커 체리 <span class="version-badge" id="app-version">v1.0.64</span></h1>
     
     <div class="header-actions">
         <button class="options-btn" onclick="openRemainingList(true)" aria-label="이 달의 남은 혜택" title="이 달의 남은 혜택">🔍</button>
@@ -1139,7 +1139,7 @@
 
         // 서비스 워커가 아직 제어하지 않으면 기본값 유지
         if (!navigator.serviceWorker.controller) {
-            badge.textContent = 'v1.0.63';
+            badge.textContent = 'v1.0.64';
             return;
         }
 
@@ -1197,7 +1197,7 @@
         // 버전 배지 강제 표시
         const badge = document.getElementById('app-version');
         if (badge && !badge.textContent.trim()) {
-            badge.textContent = 'v1.0.63';
+            badge.textContent = 'v1.0.64';
         }
         fetchAppVersion();
 
@@ -2438,16 +2438,26 @@
         return `${y}-${m}`;
     }
 
+    /* 다음 달 YYYY-MM (앱 실행일 기준) */
+    function getNextYearMonth() {
+        const now = new Date();
+        let y = now.getFullYear();
+        let m = now.getMonth() + 2; // 다음 달 (0-based + 1 + 1)
+        if (m > 12) { m = 1; y += 1; }
+        return `${y}-${String(m).padStart(2, '0')}`;
+    }
+
     function formatYearMonthLabel(ym) {
         if (!ym || !/^\d{4}-\d{2}$/.test(ym)) return ym || '';
         const [y, m] = ym.split('-');
         return `${y}년 ${parseInt(m, 10)}월`;
     }
 
-    /* 사용 기록 또는 전월 실적이 있는 달 + 앱 실행 당월 */
+    /* 사용 기록·전월 실적 있는 달 + 당월 + 다음 달(실적 미리 등록용) */
     function getAvailableMonths() {
         const set = new Set();
         set.add(getCurrentYearMonth());
+        set.add(getNextYearMonth());
         (benefitData || []).forEach(item => {
             if (item.date && String(item.date).length >= 7) {
                 set.add(String(item.date).slice(0, 7));
