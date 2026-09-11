@@ -932,7 +932,7 @@
 
 <!-- 안드로이드 앱바 스타일 헤더 (전체 폭) -->
 <header>
-    <h1>🍒 카드 피커 체리 <span class="version-badge" id="app-version">v1.0.64</span></h1>
+    <h1>🍒 카드 피커 체리 <span class="version-badge" id="app-version">v1.0.65</span></h1>
     
     <div class="header-actions">
         <button class="options-btn" onclick="openRemainingList(true)" aria-label="이 달의 남은 혜택" title="이 달의 남은 혜택">🔍</button>
@@ -1139,7 +1139,7 @@
 
         // 서비스 워커가 아직 제어하지 않으면 기본값 유지
         if (!navigator.serviceWorker.controller) {
-            badge.textContent = 'v1.0.64';
+            badge.textContent = 'v1.0.65';
             return;
         }
 
@@ -1197,7 +1197,7 @@
         // 버전 배지 강제 표시
         const badge = document.getElementById('app-version');
         if (badge && !badge.textContent.trim()) {
-            badge.textContent = 'v1.0.64';
+            badge.textContent = 'v1.0.65';
         }
         fetchAppVersion();
 
@@ -2094,8 +2094,9 @@
                 benefits = filterBenefitsByGrade(all, cardName, month);
             } else {
                 // 일반 카드: 해당 월 전월실적 + 옵션 + 등급
+                // 선택 실적 이하 구간 혜택 포함 (0만원 마일리지 등)
                 benefits = filterBenefitsByOption(
-                    getBenefitsForTier(tiers, selectedTier),
+                    getBenefitsUpToTier(tiers, selectedTier),
                     cardName,
                     month
                 );
@@ -3220,8 +3221,9 @@
 
             // 월별 옵션 (없으면 설정 기본값)
             const selectedOptionBenefits = getMonthOptions(targetMonth, cardName);
+            // 선택 실적 이하 구간 혜택 포함 (0만원 마일리지 등)
             let benefits = filterBenefitsByOption(
-                getBenefitsForTier(tiers, selectedTier),
+                getBenefitsUpToTier(tiers, selectedTier),
                 cardName,
                 targetMonth
             );
@@ -3604,8 +3606,9 @@
         let selectedTier = monthPerf[cardName] || defaults.defaultTier || tierKeys[0];
         if (!tierKeys.includes(selectedTier)) selectedTier = tierKeys[0];
 
+        // 선택 실적 이하 구간 혜택 포함 (0만원 마일리지 등)
         let list = filterBenefitsByOption(
-            getBenefitsForTier(tiers, selectedTier),
+            getBenefitsUpToTier(tiers, selectedTier),
             cardName,
             monthKey
         );
