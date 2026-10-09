@@ -932,7 +932,7 @@
 
 <!-- 안드로이드 앱바 스타일 헤더 (전체 폭) -->
 <header>
-    <h1>🍒 카드 피커 체리 <span class="version-badge" id="app-version">v1.0.66</span></h1>
+    <h1>🍒 카드 피커 체리 <span class="version-badge" id="app-version">v1.0.67</span></h1>
     
     <div class="header-actions">
         <button class="options-btn" onclick="openRemainingList(true)" aria-label="이 달의 남은 혜택" title="이 달의 남은 혜택">🔍</button>
@@ -1139,7 +1139,7 @@
 
         // 서비스 워커가 아직 제어하지 않으면 기본값 유지
         if (!navigator.serviceWorker.controller) {
-            badge.textContent = 'v1.0.66';
+            badge.textContent = 'v1.0.67';
             return;
         }
 
@@ -1197,7 +1197,7 @@
         // 버전 배지 강제 표시
         const badge = document.getElementById('app-version');
         if (badge && !badge.textContent.trim()) {
-            badge.textContent = 'v1.0.66';
+            badge.textContent = 'v1.0.67';
         }
         fetchAppVersion();
 
@@ -3590,6 +3590,10 @@
     function updateBenefitOptions() {
         const cardName = document.getElementById('form-card').value;
         const benefitSelect = document.getElementById('form-benefit');
+        // 날짜 변경 등으로 목록을 다시 채워도 기존 혜택 선택은 가능하면 유지
+        const prevBenefit = benefitSelect.value || '';
+        const prevPayment = document.getElementById('form-payment')?.value || '';
+        const prevAmount = document.getElementById('form-amount')?.value || '';
         benefitSelect.innerHTML = '';
 
         if (!cardName || !cardBenefitsData || !cardBenefitsData[cardName]) {
@@ -3671,11 +3675,21 @@
             benefitSelect.appendChild(opt);
         });
 
-        document.getElementById('form-payment').value = '';
-        document.getElementById('form-amount').value = '';
-        document.getElementById('form-calc-hint').textContent = '';
+        // 이전 선택이 새 목록에 있으면 유지, 없으면 금액 필드만 초기화
+        const stillAvailable = prevBenefit && benefitMap.has(prevBenefit);
+        if (stillAvailable) {
+            benefitSelect.value = prevBenefit;
+            if (document.getElementById('form-payment')) document.getElementById('form-payment').value = prevPayment;
+            if (document.getElementById('form-amount')) document.getElementById('form-amount').value = prevAmount;
+        } else {
+            document.getElementById('form-payment').value = '';
+            document.getElementById('form-amount').value = '';
+            document.getElementById('form-calc-hint').textContent = '';
+        }
         const payGroup = document.getElementById('form-payment-group');
         if (payGroup) payGroup.style.display = '';
+        // 선택 유지된 경우 한도/계산 힌트 갱신
+        if (stillAvailable) onBenefitOrPaymentChange();
     }
 
     function onBenefitOrPaymentChange() {
