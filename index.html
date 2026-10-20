@@ -932,7 +932,7 @@
 
 <!-- 안드로이드 앱바 스타일 헤더 (전체 폭) -->
 <header>
-    <h1>🍒 카드 피커 체리 <span class="version-badge" id="app-version">v1.0.67</span></h1>
+    <h1>🍒 카드 피커 체리 <span class="version-badge" id="app-version">v1.0.68</span></h1>
     
     <div class="header-actions">
         <button class="options-btn" onclick="openRemainingList(true)" aria-label="이 달의 남은 혜택" title="이 달의 남은 혜택">🔍</button>
@@ -1139,7 +1139,7 @@
 
         // 서비스 워커가 아직 제어하지 않으면 기본값 유지
         if (!navigator.serviceWorker.controller) {
-            badge.textContent = 'v1.0.67';
+            badge.textContent = 'v1.0.68';
             return;
         }
 
@@ -1197,7 +1197,7 @@
         // 버전 배지 강제 표시
         const badge = document.getElementById('app-version');
         if (badge && !badge.textContent.trim()) {
-            badge.textContent = 'v1.0.67';
+            badge.textContent = 'v1.0.68';
         }
         fetchAppVersion();
 
@@ -1268,6 +1268,152 @@
         document.getElementById("csv-import-input").click();
     }
 
+    function collectBenefitNamesFromTiers(tiers) {
+        const names = new Set();
+        if (!tiers) return names;
+        Object.values(tiers).forEach(list => {
+            (list || []).forEach(b => { if (b && b.name) names.add(b.name); });
+        });
+        return names;
+    }
+
+    function collectBenefitMetaList(tiers) {
+        const map = new Map(); // name -> { rate, limit, type }
+        if (!tiers) return map;
+        Object.values(tiers).forEach(list => {
+            (list || []).forEach(b => {
+                if (!b || !b.name || map.has(b.name)) return;
+                map.set(b.name, { rate: b.rate || '', limit: b.limit || '', type: b.type || '' });
+            });
+        });
+        return map;
+    }
+
+    function nameSimilarity(a, b) {
+        const na = String(a || '');
+        const nb = String(b || '');
+        if (!na || !nb) return 0;
+        if (na === nb) return 1;
+        // 공통 글자 비율 (간단 유사도)
+        const sa = new Set(na.replace(/\s/g, ''));
+        const sb = new Set(nb.replace(/\s/g, ''));
+        let inter = 0;
+        sa.forEach(ch => { if (sb.has(ch)) inter++; });
+        const union = sa.size + sb.size - inter;
+        return union ? inter / union : 0;
+    }
+
+    /* 구 CSV → 신 CSV 혜택명 매핑 추론 */
+    function buildBenefitRenameMap(oldData, newData) {
+        const renameMap = {}; // cardName -> { oldName: newName }
+        if (!oldData || !newData) return renameMap;
+
+        Object.keys(oldData).forEach(cardName => {
+            if (!newData[cardName]) return;
+            const oldNames = collectBenefitNamesFromTiers(oldData[cardName]);
+            const newNames = collectBenefitNamesFromTiers(newData[cardName]);
+            const removed = [...oldNames].filter(n => !newNames.has(n));
+            const added = [...newNames].filter(n => !oldNames.has(n));
+            if (!removed.length || !added.length) return;
+
+            const oldMeta = collectBenefitMetaList(oldData[cardName]);
+            const newMeta = collectBenefitMetaList(newData[cardName]);
+            const cardMap = {};
+            const usedNew = new Set();
+
+            // 1) 1:1 이고 하나만 바뀐 경우
+            if (removed.length === 1 && added.length === 1) {
+                cardMap[removed[0]] = added[0];
+                usedNew.add(added[0]);
+            } else {
+                // 2) rate+limit+type 동일 매칭
+                removed.forEach(oldN => {
+                    const om = oldMeta.get(oldN) || {};
+                    const candidates = added.filter(nn => !usedNew.has(nn)).filter(nn => {
+                        const nm = newMeta.get(nn) || {};
+                        return om.rate === nm.rate && om.limit === nm.limit && om.type === nm.type;
+                    });
+                    if (candidates.length === 1) {
+                        cardMap[oldN] = candidates[0];
+                        usedNew.add(candidates[0]);
+                    }
+                });
+                // 3) 남은 것은 이름 유사도
+                removed.forEach(oldN => {
+                    if (cardMap[oldN]) return;
+                    let best = null, bestScore = 0.35;
+                    added.forEach(nn => {
+                        if (usedNew.has(nn)) return;
+                        const sc = nameSimilarity(oldN, nn);
+                        if (sc > bestScore) { bestScore = sc; best = nn; }
+                    });
+                    if (best) {
+                        cardMap[oldN] = best;
+                        usedNew.add(best);
+                    }
+                });
+            }
+
+            if (Object.keys(cardMap).length) renameMap[cardName] = cardMap;
+        });
+        return renameMap;
+    }
+
+    /* 사용 기록·월별 옵션 선택값에 혜택명 변경 반영 */
+    function applyBenefitRenameMap(renameMap) {
+        let recordCount = 0;
+        let optionCount = 0;
+        if (!renameMap || !Object.keys(renameMap).length) {
+            return { recordCount, optionCount, details: [] };
+        }
+        const details = [];
+
+        (benefitData || []).forEach(item => {
+            const cmap = renameMap[item.cardName];
+            if (!cmap) return;
+            const nn = cmap[item.benefitName];
+            if (nn && nn !== item.benefitName) {
+                details.push(`${item.cardName}: ${item.benefitName} → ${nn}`);
+                item.benefitName = nn;
+                recordCount++;
+            }
+        });
+
+        // 설정/월별 옵션에 저장된 혜택명
+        Object.keys(cardDefaults || {}).forEach(cardName => {
+            const cmap = renameMap[cardName];
+            if (!cmap || !cardDefaults[cardName]) return;
+            const opts = cardDefaults[cardName].selectedOptionBenefits;
+            if (!opts) return;
+            Object.keys(opts).forEach(ok => {
+                const oldN = opts[ok];
+                if (cmap[oldN]) {
+                    opts[ok] = cmap[oldN];
+                    optionCount++;
+                }
+            });
+        });
+        Object.keys(monthlyOptions || {}).forEach(month => {
+            const byCard = monthlyOptions[month] || {};
+            Object.keys(byCard).forEach(cardName => {
+                const cmap = renameMap[cardName];
+                if (!cmap) return;
+                const opts = byCard[cardName];
+                if (!opts) return;
+                Object.keys(opts).forEach(ok => {
+                    const oldN = opts[ok];
+                    if (cmap[oldN]) {
+                        opts[ok] = cmap[oldN];
+                        optionCount++;
+                    }
+                });
+            });
+        });
+
+        if (recordCount || optionCount) saveData();
+        return { recordCount, optionCount, details: [...new Set(details)] };
+    }
+
     function importCardBenefitsCSV(event) {
         const file = event.target.files[0];
         if (!file) return;
@@ -1281,8 +1427,11 @@
                     alert("유효한 카드 혜택 데이터를 찾지 못했습니다. CSV 형식을 확인해 주세요.");
                     return;
                 }
+                const prevBenefits = cardBenefitsData;
+                const renameMap = buildBenefitRenameMap(prevBenefits, parsed);
                 cardBenefitsData = parsed;
                 localStorage.setItem('card_picker_cherry_benefits', JSON.stringify(cardBenefitsData));
+                const migrated = applyBenefitRenameMap(renameMap);
                 // 기존 카드 순서 유지, 신규 카드만 맨 아래 추가
                 const prevOrder = JSON.parse(localStorage.getItem('card_order_cherry') || 'null');
                 const allNames = Object.keys(cardBenefitsData);
@@ -1297,7 +1446,15 @@
                 renderAll();
                 populateFormCards();
                 const names = nextOrder;
-                alert(`카드 혜택을 성공적으로 불러왔습니다!\n총 ${names.length}개 카드\n\n${names.map(n => '· ' + n).join('\n')}`);
+                let msg = `카드 혜택을 성공적으로 불러왔습니다!\n총 ${names.length}개 카드\n\n${names.map(n => '· ' + n).join('\n')}`;
+                if (migrated.recordCount || migrated.optionCount) {
+                    msg += `\n\n혜택명 변경 이전: 기록 ${migrated.recordCount}건`;
+                    if (migrated.details.length) {
+                        msg += '\n' + migrated.details.slice(0, 8).map(d => '· ' + d).join('\n');
+                        if (migrated.details.length > 8) msg += `\n· … 외 ${migrated.details.length - 8}건`;
+                    }
+                }
+                alert(msg);
             } catch (err) {
                 alert("CSV 파일을 읽는 중 오류가 발생했습니다: " + err.message);
             }
