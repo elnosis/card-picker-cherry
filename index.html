@@ -932,7 +932,7 @@
 
 <!-- 안드로이드 앱바 스타일 헤더 (전체 폭) -->
 <header>
-    <h1>🍒 카드 피커 체리 <span class="version-badge" id="app-version">v1.0.68</span></h1>
+    <h1>🍒 카드 피커 체리 <span class="version-badge" id="app-version">v1.0.69</span></h1>
     
     <div class="header-actions">
         <button class="options-btn" onclick="openRemainingList(true)" aria-label="이 달의 남은 혜택" title="이 달의 남은 혜택">🔍</button>
@@ -1139,7 +1139,7 @@
 
         // 서비스 워커가 아직 제어하지 않으면 기본값 유지
         if (!navigator.serviceWorker.controller) {
-            badge.textContent = 'v1.0.68';
+            badge.textContent = 'v1.0.69';
             return;
         }
 
@@ -1197,7 +1197,7 @@
         // 버전 배지 강제 표시
         const badge = document.getElementById('app-version');
         if (badge && !badge.textContent.trim()) {
-            badge.textContent = 'v1.0.68';
+            badge.textContent = 'v1.0.69';
         }
         fetchAppVersion();
 
@@ -2936,23 +2936,31 @@
         return parseLimitAmount(meta.limit);
     }
 
-    /* 월 실적에 맞는 혜택 메타 (없으면 일반 findBenefitMeta) */
+    /* 월 실적에 맞는 혜택 메타 (선택 실적 이하 중 가장 높은 구간) */
     function findBenefitMetaForMonth(cardName, benefitName, dateStr) {
         if (!cardBenefitsData || !benefitName) return findBenefitMeta(cardName, benefitName);
-        const monthKey = dateStr ? String(dateStr).slice(0, 7) : '';
-        const searchCards = [cardName];
-        const linked = getLinkedCompanyProduct(cardName);
-        if (linked) searchCards.push(linked);
+        const monthKey = dateStr ? String(dateStr).slice(0, 7) : getCurrentYearMonth();
 
-        if (monthKey && cardBenefitsData[cardName]) {
+        if (cardBenefitsData[cardName]) {
             const tiers = cardBenefitsData[cardName];
             const tierKeys = getTierKeys(tiers);
             const defaults = cardDefaults[cardName] || {};
             const monthPerf = performanceData[monthKey] || {};
             let selectedTier = monthPerf[cardName] || defaults.defaultTier || tierKeys[0];
             if (!tierKeys.includes(selectedTier)) selectedTier = tierKeys[0];
-            const inTier = (tiers[selectedTier] || []).find(b => b.name === benefitName);
-            if (inTier) return inTier;
+            // 구간별 할인율/한도가 다른 혜택 → 해당 실적 구간의 행 사용
+            const list = getBenefitsUpToTier(tiers, selectedTier);
+            const found = list.find(b => b.name === benefitName);
+            if (found) return found;
+        }
+
+        // 연결 카드사 혜택
+        const linked = getLinkedCompanyProduct(cardName);
+        if (linked && cardBenefitsData[linked]) {
+            for (const list of Object.values(cardBenefitsData[linked])) {
+                const found = (list || []).find(b => b.name === benefitName);
+                if (found) return found;
+            }
         }
         return findBenefitMeta(cardName, benefitName);
     }
@@ -3865,21 +3873,29 @@
             return;
         }
 
-        const meta = findBenefitMeta(cardName, benefitName);
+        const dateVal = document.getElementById('form-date')?.value || '';
+        // 해당 월 전월 실적 구간의 할인율/한도 사용 (예: 80만원 → 10%)
+        const meta = findBenefitMetaForMonth(cardName, benefitName, dateVal) || findBenefitMeta(cardName, benefitName);
         if (!meta) return;
 
-        const unit = getUnitLabel(meta.rate, meta.limit);
+        // 선택 옵션에 저장된 rate/limit이 있으면 우선 (목록 생성 시점 실적 반영)
+        const benefitSelect = document.getElementById('form-benefit');
+        const opt = benefitSelect && benefitSelect.selectedOptions && benefitSelect.selectedOptions[0];
+        const rate = (opt && opt.dataset.rate) ? opt.dataset.rate : meta.rate;
+        const limit = (opt && opt.dataset.limit) ? opt.dataset.limit : meta.limit;
+
+        const unit = getUnitLabel(rate, limit);
         amountLabel.textContent = unit === '마일' ? '적립 마일리지' : '혜택 금액 (원)';
 
         const provider = meta.provider || getCardProviderType(cardName);
-        const calculable = isRateCalculable(meta.rate);
+        const calculable = isRateCalculable(rate);
 
         // 카드사/멤버십사 + 계산 어려운 할인율 → 결제금액 없이 할인 금액만
         if ((provider === '카드사' || provider === '멤버십사') && !calculable) {
             if (payGroup) payGroup.style.display = 'none';
             document.getElementById('form-payment').value = '';
             amountInput.placeholder = '할인 금액을 입력하세요';
-            hint.textContent = `할인 조건: ${meta.rate || '-'} / 한도: ${meta.limit || '없음'} · 직접 입력`;
+            hint.textContent = `할인 조건: ${rate || '-'} / 한도: ${limit || '없음'} · 직접 입력`;
             return;
         }
 
@@ -3888,12 +3904,11 @@
 
         if (payment <= 0) {
             amountInput.value = '';
-            hint.textContent = `계산식: ${meta.rate || '-'} / 한도: ${meta.limit || '없음'}`;
+            hint.textContent = `계산식: ${rate || '-'} / 한도: ${limit || '없음'}`;
             return;
         }
 
-        const calculated = calculateBenefitAmount(payment, meta.rate, meta.limit);
-        const dateVal = document.getElementById('form-date')?.value || '';
+        const calculated = calculateBenefitAmount(payment, rate, limit);
         const excludeId = (typeof editingId !== 'undefined' && editingId != null) ? editingId : null;
         const remain = getRemainingLimit(cardName, benefitName, dateVal, excludeId);
         const limitNum = getBenefitLimitNum(cardName, benefitName, dateVal);
